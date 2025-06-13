@@ -1,82 +1,127 @@
+version: '3.8'
 services:
-  app:
+  bolt:
+    image: bolt.diy:latest
+    pull_policy: build
+    platform: linux/arm64
     build:
-      context: .
-      dockerfile: Dockerfile-coolify
-    ports:
-      - "3000:5173"
-    environment:
-      - NODE_ENV=production
-      - PORT=5173
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - HuggingFace_API_KEY=${HuggingFace_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPEN_ROUTER_API_KEY=${OPEN_ROUTER_API_KEY}
-      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}
-      - OLLAMA_API_BASE_URL=${OLLAMA_API_BASE_URL}
-      - XAI_API_KEY=${XAI_API_KEY}
-      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
-      - TOGETHER_API_BASE_URL=${TOGETHER_API_BASE_URL}
-      - AWS_BEDROCK_CONFIG=${AWS_BEDROCK_CONFIG}
-      - VITE_LOG_LEVEL=${VITE_LOG_LEVEL:-debug}
-      - DEFAULT_NUM_CTX=${DEFAULT_NUM_CTX:-32768}
-    restart: unless-stopped
+      context: https://github.com/stackblitz-labs/bolt.diy.git#v0.0.6
+      target: bolt-ai-production
+      dockerfile_inline: |
+        FROM node:20.18.0 AS base
+        WORKDIR /app
+        
+  
+        RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+        
+        COPY package.json pnpm-lock.yaml ./
+        RUN npm install -g pnpm@8.15.4 && pnpm install
+        
+        COPY . .
+        RUN git init && \
+            git config --global user.email "build@example.com" && \
+            git config --global user.name "Build Process" && \
+            git add . && \
+            git commit -m "Initial commit for build"
+            
+        EXPOSE 5173
+        
+        FROM base AS bolt-ai-production
+        ARG GROQ_API_KEY
+        ARG HuggingFace_API_KEY
+        ARG OPENAI_API_KEY
+        ARG ANTHROPIC_API_KEY
+        ARG OPEN_ROUTER_API_KEY
+        ARG GOOGLE_GENERATIVE_AI_API_KEY
+        ARG OLLAMA_API_BASE_URL
+        ARG XAI_API_KEY
+        ARG TOGETHER_API_KEY
+        ARG TOGETHER_API_BASE_URL
+        ARG AWS_BEDROCK_CONFIG
+        ARG VITE_LOG_LEVEL=debug
+        ARG DEFAULT_NUM_CTX
+        ENV WRANGLER_SEND_METRICS=false \
+            GROQ_API_KEY=${GROQ_API_KEY} \
+            HuggingFace_KEY=${HuggingFace_API_KEY} \
+            OPENAI_API_KEY=${OPENAI_API_KEY} \
+            ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} \
+            OPEN_ROUTER_API_KEY=${OPEN_ROUTER_API_KEY} \
+            GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY} \
+            OLLAMA_API_BASE_URL=${OLLAMA_API_BASE_URL} \
+            XAI_API_KEY=${XAI_API_KEY} \
+            TOGETHER_API_KEY=${TOGETHER_API_KEY} \
+            TOGETHER_API_BASE_URL=${TOGETHER_API_BASE_URL} \
+            AWS_BEDROCK_CONFIG=${AWS_BEDROCK_CONFIG} \
+            VITE_LOG_LEVEL=${VITE_LOG_LEVEL:-debug} \
+            DEFAULT_NUM_CTX=${DEFAULT_NUM_CTX}\
+            RUNNING_IN_DOCKER=true \
+            VITE_CJS_IGNORE_WARNING=true \
+            VITE_CJS_TRACE=true \
+            HOST=0.0.0.0 \
+            NODE_ENV=production
+        RUN mkdir -p /root/.config/.wrangler && \
+            echo '{"enabled":false}' > /root/.config/.wrangler/metrics.json
+        RUN NODE_OPTIONS="--max_old_space_size=4096 --expose-gc" pnpm run build
+        CMD [ "pnpm", "run", "dockerstart" ]
 
-  app-dev:
-    image: bolt-ai:development
-    build:
-      target: bolt-ai-development
-    env_file: ".env.local"
-    environment:
-      - NODE_ENV=development
-      - VITE_HMR_PROTOCOL=ws
-      - VITE_HMR_HOST=localhost
-      - VITE_HMR_PORT=5173
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
-      - PORT=5173
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - HuggingFace_API_KEY=${HuggingFace_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPEN_ROUTER_API_KEY=${OPEN_ROUTER_API_KEY}
-      - XAI_API_KEY=${XAI_API_KEY}
-      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}
-      - OLLAMA_API_BASE_URL=${OLLAMA_API_BASE_URL}
-      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
-      - TOGETHER_API_BASE_URL=${TOGETHER_API_BASE_URL}
-      - AWS_BEDROCK_CONFIG=${AWS_BEDROCK_CONFIG}
-      - VITE_LOG_LEVEL=${VITE_LOG_LEVEL:-debug}
-      - DEFAULT_NUM_CTX=${DEFAULT_NUM_CTX:-32768}
-      - RUNNING_IN_DOCKER=true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - type: bind
-        source: .
-        target: /app
-        consistency: cached
-      - /app/node_modules
-    ports:
-      - "5173:5173"
-    command: pnpm run dev --host 0.0.0.0
-    profiles: ["development", "default"]
-
-  app-prebuild:
-    image: ghcr.io/stackblitz-labs/bolt.diy:latest 
-    ports:
-      - "5173:5173"
     environment:
       - NODE_ENV=production
       - COMPOSE_PROFILES=production
-      # No strictly needed but serving as hints for Coolify
       - PORT=5173
-      - OLLAMA_API_BASE_URL=http://127.0.0.1:11434
-      - DEFAULT_NUM_CTX=${DEFAULT_NUM_CTX:-32768}
       - RUNNING_IN_DOCKER=true
+      - NODE_OPTIONS=--max_old_space_size=8192 --expose-gc
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - HuggingFace_API_KEY=${HuggingFace_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPEN_ROUTER_API_KEY=${OPEN_ROUTER_API_KEY}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}
+      - OLLAMA_API_BASE_URL=${OLLAMA_API_BASE_URL:-http://host.docker.internal:11434}
+      - XAI_API_KEY=${XAI_API_KEY}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+      - TOGETHER_API_BASE_URL=${TOGETHER_API_BASE_URL}
+      - AWS_BEDROCK_CONFIG=${AWS_BEDROCK_CONFIG}
+      - DEFAULT_NUM_CTX=${DEFAULT_NUM_CTX:-32768}
+      - VITE_CJS_IGNORE_WARNING=true
+      - VITE_CJS_TRACE=true
+      - HOST=0.0.0.0
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+      - /var/run
+
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.bolt.entrypoints=websecure
+      - traefik.http.routers.bolt.rule=Host(`example.bolt.diy`)
+      - traefik.http.routers.bolt.tls=true
+      - traefik.http.routers.bolt.tls.certresolver=coolify
+      - traefik.http.services.bolt.loadbalancer.server.port=5173
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: pnpm run dockerstart
-    profiles:
-      - prebuilt
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
