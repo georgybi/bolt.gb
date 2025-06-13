@@ -10,7 +10,7 @@ RUN corepack enable pnpm && \
 COPY package.json pnpm-lock.yaml ./
 
 # Instalar dependências
-RUN npm install -g pnpm  # Add this BEFORE pnpm install
+RUN npm install -g pnpm
 RUN pnpm install
 
 # Copiar código  fonte e scripts
